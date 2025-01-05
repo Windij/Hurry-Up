@@ -1,3 +1,5 @@
+import sys
+
 import pygame
 import os
 
@@ -10,9 +12,18 @@ BROWN = (123, 63, 0)
 RED = (255, 0, 0)
 GREEN = (0,255,0)
 BLACK = (0, 0, 0)
-SILVER = (220,220,220)
+SILVER = (200,200,200)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
+
+def load_image(name, colorkey=None):
+    fullname = os.path.join('data', name)
+    # если файл не существует, то выходим
+    if not os.path.isfile(fullname):
+        print(f"Файл с изображением '{fullname}' не найден")
+        sys.exit()
+    image = pygame.image.load(fullname)
+    return image
 
 
 class Base(pygame.sprite.Sprite):
@@ -33,9 +44,9 @@ class Wall(Base):
     def __init__(self, x, y):
         super().__init__(x, y, RED)
 
-# class Floor(Base):
-#     def __init__(self, x, y):
-#         super().__init__(x, y, BROWN)
+class Floor(Base):
+    def __init__(self, x, y):
+        super().__init__(x, y, BROWN)
 
 
 class Player(Base):
@@ -70,12 +81,14 @@ def create_level(level_data):
             if tile_type == '#':
                 tile = Wall(x, y)
                 wall_tiles.add(tile)
-            # elif tile_type == '.':
-            #     tile = Floor(x, y)
-            #     floor_tiles.add(tile)
+            elif tile_type == '.':
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
             elif tile_type == 'P':
                 p1 = Player(x, y)
+                tile = Floor(x, y)
                 player.add(p1)
+                floor_tiles.add(tile)
     return wall_tiles,floor_tiles, player, p1
 
 
@@ -132,9 +145,9 @@ class Board:
         for tile in self.wall_tiles:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
-        # for tile in self.floor_tiles:
-        #     tile.rect.x += delta_x
-        #     tile.rect.y += delta_y
+        for tile in self.floor_tiles:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
         for tile in self.player:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
@@ -145,15 +158,15 @@ class Board:
         if self.p1.is_collide(self.wall_tiles):
             for tile in self.wall_tiles:
                 tile.move(-dx, -dy)
-        # else:
-        #     for tile in self.floor_tiles:
-        #         tile.move(dx, dy)
+        else:
+            for tile in self.floor_tiles:
+                tile.move(dx, dy)
 
     def draw_level(self, screen):
         self.screen_2.fill((0,0,0,0))
         self.render(self.screen_2)
         self.wall_tiles.draw(self.screen_2)
-        # self.floor_tiles.draw(self.screen_2)
+        self.floor_tiles.draw(self.screen_2)
         self.player.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left,self.top))
 

@@ -10,11 +10,12 @@ BOARD_HEIGHT = 9
 TILE_SIZE = 60
 BROWN = (123, 63, 0)
 RED = (255, 0, 0)
-GREEN = (0,255,0)
+GREEN = (0, 255, 0)
 BLACK = (0, 0, 0)
-SILVER = (200,200,200)
+SILVER = (200, 200, 200)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
+
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
@@ -44,9 +45,15 @@ class Wall(Base):
     def __init__(self, x, y):
         super().__init__(x, y, RED)
 
+
 class Floor(Base):
     def __init__(self, x, y):
         super().__init__(x, y, BROWN)
+
+
+class Lifting_objects(Base):
+    def __init__(self, x, y):
+        super().__init__(x, y, (160, 50, 120))
 
 
 class Player(Base):
@@ -75,6 +82,7 @@ def load_level(filename):
 def create_level(level_data):
     wall_tiles = pygame.sprite.Group()
     floor_tiles = pygame.sprite.Group()
+    lifting_objects = pygame.sprite.Group()
     player = pygame.sprite.Group()
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
@@ -89,7 +97,12 @@ def create_level(level_data):
                 tile = Floor(x, y)
                 player.add(p1)
                 floor_tiles.add(tile)
-    return wall_tiles,floor_tiles, player, p1
+            elif tile_type == '{':
+                tile = Lifting_objects(x, y)
+                lifting_objects.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+    return wall_tiles, floor_tiles, lifting_objects, player, p1
 
 
 class Board:
@@ -98,11 +111,12 @@ class Board:
         self.height = height
         self.board = [[0] * width for _ in range(height)]
         self.left = (SCREEN_WIDTH - width * TILE_SIZE) // 2
-        self.top = (SCREEN_HEIGHT - height * TILE_SIZE) // 2
+        self.top = 0
         self.cell_size = TILE_SIZE
         self.wall_tiles = pygame.sprite.Group()
+        self.lifting_objects = pygame.sprite.Group()
         self.screen_2 = pygame.Surface((self.width * self.cell_size,
-                                       self.height * self.cell_size))
+                                        self.height * self.cell_size))
 
     def set_view(self, left, top, cell_size):
         self.left = left
@@ -139,7 +153,7 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall_tiles,self.floor_tiles, self.player, self.p1 = create_level(level_data)
+        self.wall_tiles, self.floor_tiles, self.lifting_objects, self.player, self.p1 = create_level(level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
         for tile in self.wall_tiles:
@@ -148,11 +162,14 @@ class Board:
         for tile in self.floor_tiles:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.lifting_objects:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
         for tile in self.player:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
 
-    def move_level(self, dx, dy):
+    def move_level(self, dx, dy, inventory):
         for tile in self.wall_tiles:
             tile.move(dx, dy)
         if self.p1.is_collide(self.wall_tiles):
@@ -161,14 +178,43 @@ class Board:
         else:
             for tile in self.floor_tiles:
                 tile.move(dx, dy)
+            for tile in self.lifting_objects:
+                tile.move(dx, dy)
+                if self.p1.rect.colliderect(tile.rect):
+                    inventory.add_to_inventory(tile)
+                    self.lifting_objects.remove(tile)
 
     def draw_level(self, screen):
-        self.screen_2.fill((0,0,0,0))
+        self.screen_2.fill((0, 0, 0, 0))
         self.render(self.screen_2)
         self.wall_tiles.draw(self.screen_2)
         self.floor_tiles.draw(self.screen_2)
+        self.lifting_objects.draw(self.screen_2)
         self.player.draw(self.screen_2)
-        screen.blit(self.screen_2, (self.left,self.top))
+        screen.blit(self.screen_2, (self.left, self.top))
+
+
+class Inventory(Board):
+    def __init__(self, width, height):
+        super().__init__(width, height)
+        self.items = []
+
+    def render(self, screen):
+        for y in range(self.height):
+            for x in range(self.width):
+                pygame.draw.rect(screen, 'white', (
+                    x * self.cell_size + self.left, y * self.cell_size + self.top,
+                    self.cell_size, self.cell_size), width=1)
+                pygame.draw.rect(screen, SILVER, (
+                    x * self.cell_size + self.left + 1, y * self.cell_size + self.top + 1,
+                    self.cell_size - 2, self.cell_size - 2))
+        for i, item in enumerate(self.items):
+            item.rect.x = self.left + i * self.cell_size
+            item.rect.y = self.top
+            screen.blit(item.image, item.rect)
+
+    def add_to_inventory(self, item):
+        self.items.append(item)
 
 
 def main():
@@ -179,6 +225,10 @@ def main():
 
     board = Board(BOARD_WIDTH, BOARD_HEIGHT)
     board.load_level(LEVEL_FILE)
+
+    inventory = Inventory(7, 1)
+    inventory.set_view(board.left + TILE_SIZE,
+                       board.top + board.cell_size * board.height + TILE_SIZE, TILE_SIZE)
 
     running = True
     while running:
@@ -196,10 +246,11 @@ def main():
                     dy = 1
                 if event.key == pygame.K_a:
                     dx = 1
-                board.move_level(dx, dy)
+                board.move_level(dx, dy, inventory)
 
         screen.fill(BLACK)
         board.draw_level(screen)
+        inventory.render(screen)
         pygame.display.flip()
 
     pygame.quit()

@@ -1,5 +1,4 @@
 import sys
-
 import pygame
 import os
 
@@ -13,13 +12,14 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLACK = (0, 0, 0)
 SILVER = (200, 200, 200)
+GOLD = (255, 215, 0)
+BLUE = (0, 0, 255)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
 
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
-    # если файл не существует, то выходим
     if not os.path.isfile(fullname):
         print(f"Файл с изображением '{fullname}' не найден")
         sys.exit()
@@ -67,6 +67,19 @@ class Player(Base):
         return pygame.sprite.spritecollideany(self, all_tiles)
 
 
+class Key(Base):
+    def __init__(self, x, y, color):
+        super().__init__(x, y, color)
+        self.color = color
+
+
+class Door(Base):
+    def __init__(self, x, y, color):
+        super().__init__(x, y, color)
+        self.color = color
+        self.is_open = False
+
+
 def load_level(filename):
     level_data = []
     try:
@@ -84,6 +97,9 @@ def create_level(level_data):
     floor_tiles = pygame.sprite.Group()
     lifting_objects = pygame.sprite.Group()
     player = pygame.sprite.Group()
+    keys = pygame.sprite.Group()
+    doors = pygame.sprite.Group()
+    p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
             if tile_type == '#':
@@ -102,7 +118,27 @@ def create_level(level_data):
                 lifting_objects.add(tile)
                 tile = Floor(x, y)
                 floor_tiles.add(tile)
-    return wall_tiles, floor_tiles, lifting_objects, player, p1
+            elif tile_type == 'K':
+                tile = Key(x, y, GOLD)
+                keys.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+            elif tile_type == 'k':
+                tile = Key(x, y, BLUE)
+                keys.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+            elif tile_type == 'D':
+                tile = Door(x, y, GOLD)
+                doors.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+            elif tile_type == 'd':
+                tile = Door(x, y, BLUE)
+                doors.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+    return wall_tiles, floor_tiles, lifting_objects, player, p1, keys, doors
 
 
 class Board:
@@ -115,6 +151,8 @@ class Board:
         self.cell_size = TILE_SIZE
         self.wall_tiles = pygame.sprite.Group()
         self.lifting_objects = pygame.sprite.Group()
+        self.keys = pygame.sprite.Group()
+        self.doors = pygame.sprite.Group()
         self.screen_2 = pygame.Surface((self.width * self.cell_size,
                                         self.height * self.cell_size))
 
@@ -153,7 +191,8 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall_tiles, self.floor_tiles, self.lifting_objects, self.player, self.p1 = create_level(level_data)
+        self.wall_tiles, self.floor_tiles, self.lifting_objects, self.player, self.p1, self.keys, self.doors = create_level(
+            level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
         for tile in self.wall_tiles:
@@ -168,8 +207,15 @@ class Board:
         for tile in self.player:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.keys:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
+        for tile in self.doors:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
 
     def move_level(self, dx, dy, inventory):
+        flag_of_door = False
         for tile in self.wall_tiles:
             tile.move(dx, dy)
         if self.p1.is_collide(self.wall_tiles):
@@ -183,6 +229,22 @@ class Board:
                 if self.p1.rect.colliderect(tile.rect):
                     inventory.add_to_inventory(tile)
                     self.lifting_objects.remove(tile)
+            for tile in self.keys:
+                tile.move(dx, dy)
+                if self.p1.rect.colliderect(tile.rect):
+                    inventory.add_to_inventory(tile)
+                    self.keys.remove(tile)
+            for tile in self.doors:
+                tile.move(dx, dy)
+                if self.p1.rect.colliderect(tile.rect):
+                    if any(item.color == tile.color for item in inventory.items):
+                        tile.is_open = True
+                        self.doors.remove(tile)
+                    else:
+                        # Блокируем проход, если дверь не открыта
+                        flag_of_door = True
+        if flag_of_door:
+            self.move_level(-dx, -dy, inventory)
 
     def draw_level(self, screen):
         self.screen_2.fill((0, 0, 0, 0))
@@ -191,6 +253,8 @@ class Board:
         self.floor_tiles.draw(self.screen_2)
         self.lifting_objects.draw(self.screen_2)
         self.player.draw(self.screen_2)
+        self.keys.draw(self.screen_2)
+        self.doors.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))
 
 
@@ -214,7 +278,8 @@ class Inventory(Board):
             screen.blit(item.image, item.rect)
 
     def add_to_inventory(self, item):
-        self.items.append(item)
+        if len(self.items) < self.width:
+            self.items.append(item)
 
 
 def main():

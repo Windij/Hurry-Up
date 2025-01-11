@@ -86,6 +86,11 @@ class Chips(Base):
         super().__init__(x, y, LIGHT_YELLOW)
 
 
+class Water(Base):
+    def __init__(self, x, y):
+        super().__init__(x, y, BLUE)
+
+
 def load_level(filename):
     level_data = []
     try:
@@ -105,6 +110,7 @@ def create_level(level_data):
     keys = pygame.sprite.Group()
     doors = pygame.sprite.Group()
     chips = pygame.sprite.Group()
+    water = pygame.sprite.Group()
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
@@ -144,7 +150,12 @@ def create_level(level_data):
                 chips.add(tile)
                 tile = Floor(x, y)
                 floor_tiles.add(tile)
-    return wall_tiles, floor_tiles, player, p1, keys, doors, chips
+            elif tile_type == 'W':
+                tile = Water(x, y)
+                water.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+    return wall_tiles, floor_tiles, player, p1, keys, doors, chips, water
 
 
 class Board:
@@ -159,6 +170,7 @@ class Board:
         self.keys = pygame.sprite.Group()
         self.doors = pygame.sprite.Group()
         self.chips = pygame.sprite.Group()
+        self.water = pygame.sprite.Group()
         self.screen_2 = pygame.Surface((self.width * self.cell_size,
                                         self.height * self.cell_size))
 
@@ -197,7 +209,7 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall_tiles, self.floor_tiles, self.player, self.p1, self.keys, self.doors, self.chips = create_level(
+        self.wall_tiles, self.floor_tiles, self.player, self.p1, self.keys, self.doors, self.chips, self.water = create_level(
             level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
@@ -217,6 +229,9 @@ class Board:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
         for tile in self.chips:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
+        for tile in self.water:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
 
@@ -249,6 +264,8 @@ class Board:
                 if self.p1.rect.colliderect(tile.rect):
                     self.chips.remove(tile)
                     chips_left -= 1
+            for tile in self.water:
+                tile.move(dx, dy)
         if flag_of_door:
             self.move_level(-dx, -dy, inventory, chips_left)
         return chips_left
@@ -262,6 +279,7 @@ class Board:
         self.keys.draw(self.screen_2)
         self.doors.draw(self.screen_2)
         self.chips.draw(self.screen_2)
+        self.water.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))
 
 
@@ -462,6 +480,7 @@ def main():
 
     is_paused = False
     last_time = 0
+    game_over = False
 
     if not start_window.running:
         board = Board(BOARD_WIDTH, BOARD_HEIGHT)
@@ -480,7 +499,7 @@ def main():
                 pause_button_rect = draw_pause_button(screen, is_paused)
                 if pause_button_rect.collidepoint(mouse_pos) and pygame.mouse.get_pressed()[0]:
                     is_paused = not is_paused
-                if event.type == pygame.KEYDOWN and not is_paused:
+                if event.type == pygame.KEYDOWN and not is_paused and not game_over:
                     dx = 0
                     dy = 0
                     if event.key == pygame.K_d:
@@ -492,7 +511,15 @@ def main():
                     if event.key == pygame.K_a:
                         dx = 1
                     chips_left = board.move_level(dx, dy, inventory, chips_left)
-            if not is_paused and chips_left > 0:
+                    if board.p1.is_collide(board.water):
+                        game_over = True
+                if event.type == pygame.KEYDOWN and game_over:
+                     if event.key == pygame.K_RETURN:
+                        game_over = False
+                        board.load_level(LEVEL_FILE)
+                        chips_left = 1
+                        time_left = 100
+            if not is_paused and chips_left > 0 and not game_over:
                 current_time = time.time()
                 if last_time == 0:
                     last_time = current_time
@@ -518,7 +545,14 @@ def main():
             draw_pause_button(screen, is_paused)
             board.draw_level(screen)
             inventory.render(screen)
+            if game_over:
+                draw_text(screen, "GAME OVER!",
+                          SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 - 50, RED)
+                draw_text(screen, "Press Enter to restart", SCREEN_WIDTH // 2 - 150,
+                          SCREEN_HEIGHT // 2, RED)
+                inventory.items = []
             pygame.display.flip()
+
 
     pygame.quit()
 

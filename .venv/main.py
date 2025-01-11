@@ -1,9 +1,12 @@
 import sys
 import pygame
 import os
+import time
+
+pygame.init()
 
 SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
+SCREEN_HEIGHT = 850
 BOARD_WIDTH = 9
 BOARD_HEIGHT = 9
 TILE_SIZE = 60
@@ -11,9 +14,12 @@ BROWN = (123, 63, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLACK = (0, 0, 0)
-SILVER = (200, 200, 200)
+GRAY = (200, 200, 200)
 GOLD = (255, 215, 0)
+YELLOW = (255, 255, 0)
 BLUE = (0, 0, 255)
+LIGHT_YELLOW = (255, 255, 150)
+WHITE = (255, 255, 255)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
 
@@ -51,11 +57,6 @@ class Floor(Base):
         super().__init__(x, y, BROWN)
 
 
-class Lifting_objects(Base):
-    def __init__(self, x, y):
-        super().__init__(x, y, (160, 50, 120))
-
-
 class Player(Base):
     def __init__(self, x, y):
         super().__init__(x, y, GREEN)
@@ -80,6 +81,11 @@ class Door(Base):
         self.is_open = False
 
 
+class Chips(Base):
+    def __init__(self, x, y):
+        super().__init__(x, y, LIGHT_YELLOW)
+
+
 def load_level(filename):
     level_data = []
     try:
@@ -95,10 +101,10 @@ def load_level(filename):
 def create_level(level_data):
     wall_tiles = pygame.sprite.Group()
     floor_tiles = pygame.sprite.Group()
-    lifting_objects = pygame.sprite.Group()
     player = pygame.sprite.Group()
     keys = pygame.sprite.Group()
     doors = pygame.sprite.Group()
+    chips = pygame.sprite.Group()
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
@@ -112,11 +118,6 @@ def create_level(level_data):
                 p1 = Player(x, y)
                 tile = Floor(x, y)
                 player.add(p1)
-                floor_tiles.add(tile)
-            elif tile_type == '{':
-                tile = Lifting_objects(x, y)
-                lifting_objects.add(tile)
-                tile = Floor(x, y)
                 floor_tiles.add(tile)
             elif tile_type == 'K':
                 tile = Key(x, y, GOLD)
@@ -138,7 +139,12 @@ def create_level(level_data):
                 doors.add(tile)
                 tile = Floor(x, y)
                 floor_tiles.add(tile)
-    return wall_tiles, floor_tiles, lifting_objects, player, p1, keys, doors
+            elif tile_type == '*':
+                tile = Chips(x, y)
+                chips.add(tile)
+                tile = Floor(x, y)
+                floor_tiles.add(tile)
+    return wall_tiles, floor_tiles, player, p1, keys, doors, chips
 
 
 class Board:
@@ -150,9 +156,9 @@ class Board:
         self.top = 0
         self.cell_size = TILE_SIZE
         self.wall_tiles = pygame.sprite.Group()
-        self.lifting_objects = pygame.sprite.Group()
         self.keys = pygame.sprite.Group()
         self.doors = pygame.sprite.Group()
+        self.chips = pygame.sprite.Group()
         self.screen_2 = pygame.Surface((self.width * self.cell_size,
                                         self.height * self.cell_size))
 
@@ -169,7 +175,7 @@ class Board:
                     x * self.cell_size,
                     y * self.cell_size, self.cell_size,
                     self.cell_size), width=1)
-                pygame.draw.rect(screen, SILVER, (
+                pygame.draw.rect(screen, GRAY, (
                     x * self.cell_size + 1,
                     y * self.cell_size + 1, self.cell_size - 2,
                     self.cell_size - 2))
@@ -191,7 +197,7 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall_tiles, self.floor_tiles, self.lifting_objects, self.player, self.p1, self.keys, self.doors = create_level(
+        self.wall_tiles, self.floor_tiles, self.player, self.p1, self.keys, self.doors, self.chips = create_level(
             level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
@@ -199,9 +205,6 @@ class Board:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
         for tile in self.floor_tiles:
-            tile.rect.x += delta_x
-            tile.rect.y += delta_y
-        for tile in self.lifting_objects:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
         for tile in self.player:
@@ -213,8 +216,11 @@ class Board:
         for tile in self.doors:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.chips:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
 
-    def move_level(self, dx, dy, inventory):
+    def move_level(self, dx, dy, inventory, chips_left):
         flag_of_door = False
         for tile in self.wall_tiles:
             tile.move(dx, dy)
@@ -224,11 +230,6 @@ class Board:
         else:
             for tile in self.floor_tiles:
                 tile.move(dx, dy)
-            for tile in self.lifting_objects:
-                tile.move(dx, dy)
-                if self.p1.rect.colliderect(tile.rect):
-                    inventory.add_to_inventory(tile)
-                    self.lifting_objects.remove(tile)
             for tile in self.keys:
                 tile.move(dx, dy)
                 if self.p1.rect.colliderect(tile.rect):
@@ -243,18 +244,24 @@ class Board:
                     else:
                         # Блокируем проход, если дверь не открыта
                         flag_of_door = True
+            for tile in self.chips:
+                tile.move(dx, dy)
+                if self.p1.rect.colliderect(tile.rect):
+                    self.chips.remove(tile)
+                    chips_left -= 1
         if flag_of_door:
-            self.move_level(-dx, -dy, inventory)
+            self.move_level(-dx, -dy, inventory, chips_left)
+        return chips_left
 
     def draw_level(self, screen):
         self.screen_2.fill((0, 0, 0, 0))
         self.render(self.screen_2)
         self.wall_tiles.draw(self.screen_2)
         self.floor_tiles.draw(self.screen_2)
-        self.lifting_objects.draw(self.screen_2)
         self.player.draw(self.screen_2)
         self.keys.draw(self.screen_2)
         self.doors.draw(self.screen_2)
+        self.chips.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))
 
 
@@ -269,7 +276,7 @@ class Inventory(Board):
                 pygame.draw.rect(screen, 'white', (
                     x * self.cell_size + self.left, y * self.cell_size + self.top,
                     self.cell_size, self.cell_size), width=1)
-                pygame.draw.rect(screen, SILVER, (
+                pygame.draw.rect(screen, GRAY, (
                     x * self.cell_size + self.left + 1, y * self.cell_size + self.top + 1,
                     self.cell_size - 2, self.cell_size - 2))
         for i, item in enumerate(self.items):
@@ -282,41 +289,236 @@ class Inventory(Board):
             self.items.append(item)
 
 
+class Button:
+    def __init__(self, text, x, y, width, height, color, hover_color, action=None):
+        self.text = text
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.color = color
+        self.hover_color = hover_color
+        self.action = action
+        self.font = pygame.font.Font(None, 36)
+        self.text_surface = self.font.render(text, True, BLACK)
+        self.text_rect = self.text_surface.get_rect(center=(x + width // 2, y + height // 2))
+        self.rect = pygame.Rect(x, y, width, height)
+
+    def draw(self, screen):
+        mouse_pos = pygame.mouse.get_pos()
+        if self.rect.collidepoint(mouse_pos):
+            pygame.draw.rect(screen, self.hover_color, self.rect)
+        else:
+            pygame.draw.rect(screen, self.color, self.rect)
+        screen.blit(self.text_surface, self.text_rect)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.rect.collidepoint(event.pos) and self.action:
+                self.action()
+
+
+class PopupWindow:
+    def __init__(self, screen, text, width, height):
+        self.screen = screen
+        self.width = width
+        self.height = height
+        self.text = text
+        self.font = pygame.font.Font(None, 24)
+        self.text_surface = self.font.render(text, True, BLACK)
+        self.text_rect = self.text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+        self.rect = pygame.Rect(SCREEN_WIDTH // 2 - width // 2, SCREEN_HEIGHT // 2 - height // 2, width, height)
+        self.running = True
+        self.close_button = Button('Закрыть', self.rect.x + self.width - 140, self.rect.y + self.height - 40, 120, 30,
+                                   RED, (200, 0, 0), self.close)
+
+    def close(self):
+        self.running = False
+
+    def run(self):
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                self.close_button.handle_event(event)
+
+            pygame.draw.rect(self.screen, GRAY, self.rect)
+            self.screen.blit(self.text_surface, self.text_rect)
+            self.close_button.draw(self.screen)
+            pygame.display.flip()
+
+
+class StartWindow:
+    def __init__(self, screen):
+        self.screen = screen
+        self.buttons = []
+        self.running = True
+        self.create_buttons()
+        self.popup_window = None
+
+    def create_buttons(self):
+        button_width = 200
+        button_height = 50
+        start_x = SCREEN_WIDTH // 2 - button_width // 2
+        button_y = 200
+        space = 80
+        self.buttons.append(
+            Button('Начать игру', start_x, button_y, button_width, button_height, GREEN, (0, 200, 0), self.start_game))
+        button_y += space
+        self.buttons.append(
+            Button('О игре', start_x, button_y, button_width, button_height, BLUE, (0, 0, 200), self.show_about))
+        button_y += space
+        self.buttons.append(Button('Об авторах', start_x, button_y, button_width, button_height, GOLD, (200, 170, 0),
+                                   self.show_authors))
+
+    def start_game(self):
+        self.running = False
+
+    def show_about(self):
+        self.popup_window = PopupWindow(self.screen, "Здесь будет информация об игре", 400, 200)
+        self.popup_window.run()
+        self.popup_window = None
+
+    def show_authors(self):
+        self.popup_window = PopupWindow(self.screen, "Здесь информация об авторах", 400, 200)
+        self.popup_window.run()
+        self.popup_window = None
+
+    def run(self):
+        while self.running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                for button in self.buttons:
+                    button.handle_event(event)
+
+            self.screen.fill(BLACK)
+            for button in self.buttons:
+                button.draw(self.screen)
+
+            pygame.display.flip()
+
+
+font_size = 40
+
+font1 = pygame.font.Font(None, font_size)
+font2 = pygame.font.Font("DS-DIGIB.TTF", font_size)
+
+clock = pygame.time.Clock()
+start_time = pygame.time.get_ticks()
+game_duration = 100
+
+level = 1
+digit_width = 20
+digit_height = 20
+
+PAUSE_BUTTON_X = 720
+PAUSE_BUTTON_Y = 780
+PAUSE_BUTTON_WIDTH = 120
+PAUSE_BUTTON_HEIGHT = 40
+
+y_offset = SCREEN_HEIGHT - digit_height
+
+
+def draw_digit(screen, number, x, y, color):
+    num_str = str(number).zfill(3)
+    for i, digit in enumerate(num_str):
+        digit_surface = font2.render(digit, True, color)
+        digit_rect = digit_surface.get_rect(center=(x + digit_width * i + digit_width // 2, y + digit_height // 2))
+        screen.blit(digit_surface, digit_rect)
+
+
+def draw_text(screen, text, x, y, color):
+    text_surface = font1.render(text, True, color)
+    screen.blit(text_surface, (x, y))
+
+
+def draw_clock_face(screen, x, y, width, height, color):
+    pygame.draw.rect(screen, color, (x, y, width, height))
+
+
+def draw_pause_button(screen, is_paused):
+    text = "PAUSE" if not is_paused else "RESUME"
+    text_surface = font1.render(text, True, WHITE)
+    button_rect = pygame.Rect(PAUSE_BUTTON_X, PAUSE_BUTTON_Y, PAUSE_BUTTON_WIDTH, PAUSE_BUTTON_HEIGHT)
+    pygame.draw.rect(screen, GRAY, button_rect)
+    text_rect = text_surface.get_rect(center=button_rect.center)
+    screen.blit(text_surface, text_rect)
+    return button_rect
+
+
 def main():
-    pygame.init()
+    level = 1
+    chips_left = 1
+    time_left = 100
     size = SCREEN_WIDTH, SCREEN_HEIGHT
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption('Level Mover')
 
-    board = Board(BOARD_WIDTH, BOARD_HEIGHT)
-    board.load_level(LEVEL_FILE)
+    start_window = StartWindow(screen)
+    start_window.run()
 
-    inventory = Inventory(7, 1)
-    inventory.set_view(board.left + TILE_SIZE,
-                       board.top + board.cell_size * board.height + TILE_SIZE, TILE_SIZE)
+    is_paused = False
+    last_time = 0
 
-    running = True
-    while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN:
-                dx = 0
-                dy = 0
-                if event.key == pygame.K_d:
-                    dx = -1
-                if event.key == pygame.K_s:
-                    dy = -1
-                if event.key == pygame.K_w:
-                    dy = 1
-                if event.key == pygame.K_a:
-                    dx = 1
-                board.move_level(dx, dy, inventory)
+    if not start_window.running:
+        board = Board(BOARD_WIDTH, BOARD_HEIGHT)
+        board.load_level(LEVEL_FILE)
 
-        screen.fill(BLACK)
-        board.draw_level(screen)
-        inventory.render(screen)
-        pygame.display.flip()
+        inventory = Inventory(7, 1)
+        inventory.set_view(board.left + TILE_SIZE,
+                           board.top + board.cell_size * board.height + TILE_SIZE, TILE_SIZE)
+
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                mouse_pos = pygame.mouse.get_pos()
+                pause_button_rect = draw_pause_button(screen, is_paused)
+                if pause_button_rect.collidepoint(mouse_pos) and pygame.mouse.get_pressed()[0]:
+                    is_paused = not is_paused
+                if event.type == pygame.KEYDOWN and not is_paused:
+                    dx = 0
+                    dy = 0
+                    if event.key == pygame.K_d:
+                        dx = -1
+                    if event.key == pygame.K_s:
+                        dy = -1
+                    if event.key == pygame.K_w:
+                        dy = 1
+                    if event.key == pygame.K_a:
+                        dx = 1
+                    chips_left = board.move_level(dx, dy, inventory, chips_left)
+            if not is_paused and chips_left > 0:
+                current_time = time.time()
+                if last_time == 0:
+                    last_time = current_time
+                if current_time - last_time >= 1:
+                    time_left -= 1
+                    last_time = current_time
+                if time_left < 0:
+                    time_left = 100
+
+            screen.fill(BLACK)
+
+            draw_text(screen, "TIME:", 700, 760 - font_size, YELLOW)
+            draw_clock_face(screen, 790, 710, 70, 40, BLUE)
+            draw_digit(screen, time_left, 794, 720, LIGHT_YELLOW)
+
+            draw_text(screen, "LEVEL:", 90, 780, YELLOW)
+            draw_clock_face(screen, 275, 775, 70, 40, BLUE)
+            draw_digit(screen, level, 282, 782, LIGHT_YELLOW)
+
+            draw_text(screen, "STARS LEFT:", 90, 760 - font_size, YELLOW)
+            draw_clock_face(screen, 275, 710, 70, 40, BLUE)
+            draw_digit(screen, chips_left, 280, 720, LIGHT_YELLOW)
+            draw_pause_button(screen, is_paused)
+            board.draw_level(screen)
+            inventory.render(screen)
+            pygame.display.flip()
 
     pygame.quit()
 

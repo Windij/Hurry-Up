@@ -336,44 +336,6 @@ class Button:
                 self.action()
 
 
-class InputBox:
-    def __init__(self, x, y, width, height, text=''):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.color = WHITE
-        self.text = text
-        self.font = pygame.font.Font(None, 32)
-        self.txt_surface = self.font.render(text, True, BLUE)
-        self.active = False
-
-    def handle_event(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if self.rect.collidepoint(event.pos):
-                self.active = not self.active
-            else:
-                self.active = False
-            self.color = WHITE if self.active else GRAY
-        if event.type == pygame.KEYDOWN:
-            if self.active:
-                if event.key == pygame.K_RETURN:
-                    print(self.text)
-                    self.text = ''
-                elif event.key == pygame.K_BACKSPACE:
-                    self.text = self.text[:-1]
-                else:
-                    self.text += event.unicode
-                self.txt_surface = self.font.render(self.text, True, BLUE)
-
-    def update(self):
-        width = max(200, self.txt_surface.get_width() + 10)
-        self.rect.w = width
-
-    def draw(self, screen):
-        screen.blit(self.txt_surface, (self.rect.x + 5, self.rect.y + 5))
-        pygame.draw.rect(screen, self.color, self.rect, 2)
-
-    def get_text(self):
-        return self.text
-
 
 class PopupWindow:
     def __init__(self, screen, text, width, height):
@@ -413,9 +375,6 @@ class StartWindow:
         self.running = True
         self.create_buttons()
         self.popup_window = None
-        self.input_box = InputBox(SCREEN_WIDTH // 2 - 100, 100, 200, 40)  # input_box
-        self.nickname_label = pygame.font.Font(None, 32).render("Введите свой ник:", True, WHITE)
-        self.nickname_label_rect = self.nickname_label.get_rect(center=(SCREEN_WIDTH // 2, 80))
 
     def create_buttons(self):
         button_width = 200
@@ -433,12 +392,7 @@ class StartWindow:
                                    self.show_authors))
 
     def start_game(self):
-        if self.input_box.get_text():
-            self.running = False
-        else:
-            self.popup_window = PopupWindow(self.screen, "Введите ник", 200, 120)
-            self.popup_window.run()
-            self.popup_window = None
+        self.running = False
 
     def show_about(self):
         self.popup_window = PopupWindow(self.screen, "Здесь будет информация об игре", 400, 200)
@@ -458,12 +412,8 @@ class StartWindow:
                     sys.exit()
                 for button in self.buttons:
                     button.handle_event(event)
-                self.input_box.handle_event(event)  # input_box
 
             self.screen.fill(BLACK)
-            self.screen.blit(self.nickname_label, self.nickname_label_rect)
-            self.input_box.update()
-            self.input_box.draw(self.screen)  # input_box
             for button in self.buttons:
                 button.draw(self.screen)
 

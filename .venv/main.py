@@ -2,13 +2,13 @@ import sys
 import pygame
 import os
 import time
-
+print(help(pygame))
 pygame.init()
 
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 850
-BOARD_WIDTH = 9
-BOARD_HEIGHT = 9
+BOARD_WIDTH = 3
+BOARD_HEIGHT = 3
 TILE_SIZE = 60
 BROWN = (123, 63, 0)
 RED = (255, 0, 0)
@@ -23,6 +23,18 @@ WHITE = (255, 255, 255)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
 
+pictures = {
+    '#': RED,
+    '.': BROWN,
+    'K': GOLD,
+    'k': BLUE,
+    'D': GOLD,
+    'd': BLUE,
+    'W': BLUE,
+    '*': LIGHT_YELLOW,
+    'P': GREEN
+}
+
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
@@ -34,10 +46,14 @@ def load_image(name, colorkey=None):
 
 
 class Base(pygame.sprite.Sprite):
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color, indicator=0):
         super().__init__()
-        self.image = pygame.Surface([TILE_SIZE, TILE_SIZE])
-        self.image.fill(color)
+        self.indicator = indicator
+        if type(color) is tuple:
+            self.image = pygame.Surface([TILE_SIZE, TILE_SIZE])
+            self.image.fill(color)
+        else:
+            self.image = load_image(color)
         self.rect = self.image.get_rect()
         self.rect.x = x * TILE_SIZE
         self.rect.y = y * TILE_SIZE
@@ -45,16 +61,6 @@ class Base(pygame.sprite.Sprite):
     def move(self, dx, dy):
         self.rect.x += dx * TILE_SIZE
         self.rect.y += dy * TILE_SIZE
-
-
-class Wall(Base):
-    def __init__(self, x, y):
-        super().__init__(x, y, RED)
-
-
-class Floor(Base):
-    def __init__(self, x, y):
-        super().__init__(x, y, BROWN)
 
 
 class Player(Base):
@@ -68,33 +74,16 @@ class Player(Base):
         return pygame.sprite.spritecollideany(self, all_tiles)
 
 
-class Key(Base):
-    def __init__(self, x, y, color):
-        super().__init__(x, y, color)
-        self.color = color
-
-
 class Door(Base):
-    def __init__(self, x, y, color):
-        super().__init__(x, y, color)
-        self.color = color
+    def __init__(self, x, y, color, indicator=0):
+        super().__init__(x, y, color, indicator)
         self.is_open = False
-
-
-class Chips(Base):
-    def __init__(self, x, y):
-        super().__init__(x, y, LIGHT_YELLOW)
-
-
-class Water(Base):
-    def __init__(self, x, y):
-        super().__init__(x, y, BLUE)
 
 
 def load_level(filename):
     level_data = []
     try:
-        with open(filename, 'r') as file:
+        with open(f'data/{filename}', 'r') as file:
             for line in file:
                 level_data.append(line.strip())
     except FileNotFoundError:
@@ -104,8 +93,8 @@ def load_level(filename):
 
 
 def create_level(level_data):
-    wall_tiles = pygame.sprite.Group()
-    floor_tiles = pygame.sprite.Group()
+    wall = pygame.sprite.Group()
+    floor = pygame.sprite.Group()
     player = pygame.sprite.Group()
     keys = pygame.sprite.Group()
     doors = pygame.sprite.Group()
@@ -114,48 +103,40 @@ def create_level(level_data):
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
+            if tile_type == '[' or tile_type == '>':
+                continue
+            tile = Base(x, y, pictures[tile_type])
             if tile_type == '#':
-                tile = Wall(x, y)
-                wall_tiles.add(tile)
-            elif tile_type == '.':
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                wall.add(tile)
             elif tile_type == 'P':
                 p1 = Player(x, y)
-                tile = Floor(x, y)
                 player.add(p1)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'K':
-                tile = Key(x, y, GOLD)
+                tile.indicator = 1
                 keys.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'k':
-                tile = Key(x, y, BLUE)
+                tile.indicator = 2
                 keys.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'D':
-                tile = Door(x, y, GOLD)
+                tile.indicator = 1
                 doors.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'd':
-                tile = Door(x, y, BLUE)
+                tile.indicator = 2
                 doors.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == '*':
-                tile = Chips(x, y)
                 chips.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'W':
-                tile = Water(x, y)
                 water.add(tile)
-                tile = Floor(x, y)
-                floor_tiles.add(tile)
-    return wall_tiles, floor_tiles, player, p1, keys, doors, chips, water
+                floor.add(Base(x, y, pictures['.']))
+            elif tile_type == '.':
+                floor.add(tile)
+    return wall, floor, player, p1, keys, doors, chips, water
 
 
 class Board:
@@ -166,11 +147,6 @@ class Board:
         self.left = (SCREEN_WIDTH - width * TILE_SIZE) // 2
         self.top = 0
         self.cell_size = TILE_SIZE
-        self.wall_tiles = pygame.sprite.Group()
-        self.keys = pygame.sprite.Group()
-        self.doors = pygame.sprite.Group()
-        self.chips = pygame.sprite.Group()
-        self.water = pygame.sprite.Group()
         self.screen_2 = pygame.Surface((self.width * self.cell_size,
                                         self.height * self.cell_size))
 
@@ -209,17 +185,14 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall_tiles, self.floor_tiles, self.player, self.p1, self.keys, self.doors, self.chips, self.water = create_level(
+        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water = create_level(
             level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
-        for tile in self.wall_tiles:
+        for tile in self.wall:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
-        for tile in self.floor_tiles:
-            tile.rect.x += delta_x
-            tile.rect.y += delta_y
-        for tile in self.player:
+        for tile in self.floor:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
         for tile in self.keys:
@@ -234,47 +207,46 @@ class Board:
         for tile in self.water:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.player:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
 
     def move_level(self, dx, dy, inventory, chips_left):
         flag_of_door = False
-        for tile in self.wall_tiles:
+        for tile in self.wall:
             tile.move(dx, dy)
-        if self.p1.is_collide(self.wall_tiles):
-            for tile in self.wall_tiles:
-                tile.move(-dx, -dy)
-        else:
-            for tile in self.floor_tiles:
-                tile.move(dx, dy)
-            for tile in self.keys:
-                tile.move(dx, dy)
-                if self.p1.rect.colliderect(tile.rect):
-                    inventory.add_to_inventory(tile)
-                    self.keys.remove(tile)
-            for tile in self.doors:
-                tile.move(dx, dy)
-                if self.p1.rect.colliderect(tile.rect):
-                    if any(item.color == tile.color for item in inventory.items):
-                        tile.is_open = True
-                        self.doors.remove(tile)
-                    else:
-                        # Блокируем проход, если дверь не открыта
-                        flag_of_door = True
-            for tile in self.chips:
-                tile.move(dx, dy)
-                if self.p1.rect.colliderect(tile.rect):
-                    self.chips.remove(tile)
-                    chips_left -= 1
-            for tile in self.water:
-                tile.move(dx, dy)
-        if flag_of_door:
+        for tile in self.water:
+            tile.move(dx, dy)
+        for tile in self.floor:
+            tile.move(dx, dy)
+        for tile in self.keys:
+            tile.move(dx, dy)
+            if self.p1.rect.colliderect(tile.rect):
+                inventory.add_to_inventory(tile)
+                self.keys.remove(tile)
+        for tile in self.doors:
+            tile.move(dx, dy)
+            if self.p1.rect.colliderect(tile.rect):
+                if any(item.indicator == tile.indicator for item in inventory.items):
+                    tile.is_open = True
+                    self.doors.remove(tile)
+                else:
+                    # Блокируем проход, если дверь не открыта
+                    flag_of_door = True
+        for tile in self.chips:
+            tile.move(dx, dy)
+            if self.p1.rect.colliderect(tile.rect):
+                self.chips.remove(tile)
+                chips_left -= 1
+        if flag_of_door or self.p1.is_collide(self.wall):
             self.move_level(-dx, -dy, inventory, chips_left)
         return chips_left
 
     def draw_level(self, screen):
         self.screen_2.fill((0, 0, 0, 0))
         self.render(self.screen_2)
-        self.wall_tiles.draw(self.screen_2)
-        self.floor_tiles.draw(self.screen_2)
+        self.wall.draw(self.screen_2)
+        self.floor.draw(self.screen_2)
         self.player.draw(self.screen_2)
         self.keys.draw(self.screen_2)
         self.doors.draw(self.screen_2)
@@ -334,7 +306,6 @@ class Button:
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.rect.collidepoint(event.pos) and self.action:
                 self.action()
-
 
 
 class PopupWindow:
@@ -423,7 +394,7 @@ class StartWindow:
 font_size = 40
 
 font1 = pygame.font.Font(None, font_size)
-font2 = pygame.font.Font("DS-DIGIB.TTF", font_size)
+font2 = pygame.font.Font("data/DS-DIGIB.TTF", font_size)
 
 clock = pygame.time.Clock()
 start_time = pygame.time.get_ticks()

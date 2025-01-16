@@ -2,13 +2,13 @@ import sys
 import pygame
 import os
 import time
-print(help(pygame))
+
 pygame.init()
 
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 850
-BOARD_WIDTH = 3
-BOARD_HEIGHT = 3
+BOARD_WIDTH = 9
+BOARD_HEIGHT = 9
 TILE_SIZE = 60
 BROWN = (123, 63, 0)
 RED = (255, 0, 0)
@@ -22,6 +22,7 @@ LIGHT_YELLOW = (255, 255, 150)
 WHITE = (255, 255, 255)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
+RECORD_FILE = 'record.txt' # Файл для хранения рекорда
 
 pictures = {
     '#': RED,
@@ -32,9 +33,9 @@ pictures = {
     'd': BLUE,
     'W': BLUE,
     '*': LIGHT_YELLOW,
-    'P': GREEN
+    'P': GREEN,
+    'O': BLUE
 }
-
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
@@ -100,6 +101,7 @@ def create_level(level_data):
     doors = pygame.sprite.Group()
     chips = pygame.sprite.Group()
     water = pygame.sprite.Group()
+    portal = pygame.sprite.Group()
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
@@ -134,9 +136,11 @@ def create_level(level_data):
             elif tile_type == 'W':
                 water.add(tile)
                 floor.add(Base(x, y, pictures['.']))
+            elif tile_type == 'O':
+                portal.add(tile)
             elif tile_type == '.':
                 floor.add(tile)
-    return wall, floor, player, p1, keys, doors, chips, water
+    return wall, floor, player, p1, keys, doors, chips, water, portal
 
 
 class Board:
@@ -185,7 +189,7 @@ class Board:
 
     def load_level(self, filename):
         level_data = load_level(filename)
-        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water = create_level(
+        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water, self.portal = create_level( # Загрузка порталов
             level_data)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
@@ -207,6 +211,9 @@ class Board:
         for tile in self.water:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.portal:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
         for tile in self.player:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
@@ -216,6 +223,8 @@ class Board:
         for tile in self.wall:
             tile.move(dx, dy)
         for tile in self.water:
+            tile.move(dx, dy)
+        for tile in self.portal:
             tile.move(dx, dy)
         for tile in self.floor:
             tile.move(dx, dy)
@@ -252,7 +261,30 @@ class Board:
         self.doors.draw(self.screen_2)
         self.chips.draw(self.screen_2)
         self.water.draw(self.screen_2)
+        self.portal.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))
+
+    def check_portal_collision(self, chips_left, time_left, screen, inventory):
+        if self.p1.is_collide(self.portal) and chips_left == 0:
+            total_score = 1000 + time_left * 10
+            record = load_record()
+            improvement = total_score - record if record !=0 else "——"
+            save_record(max(total_score, record))
+            inventory.items = []
+            PopupWindow(screen, f"Total Score: {total_score}      Record: {record}     Improvement: {improvement}", 600, 200).run()
+            return True
+        return False
+
+def load_record():
+    try:
+        with open(RECORD_FILE, 'r') as f:
+            return int(f.read())
+    except FileNotFoundError:
+        return 0
+
+def save_record(record):
+    with open(RECORD_FILE, 'w') as f:
+        f.write(str(record))
 
 
 class Inventory(Board):
@@ -453,6 +485,8 @@ def main():
     is_paused = False
     last_time = 0
     game_over = False
+    level_complete = False
+
 
     if not start_window.running:
         board = Board(BOARD_WIDTH, BOARD_HEIGHT)
@@ -471,7 +505,7 @@ def main():
                 pause_button_rect = draw_pause_button(screen, is_paused)
                 if pause_button_rect.collidepoint(mouse_pos) and pygame.mouse.get_pressed()[0]:
                     is_paused = not is_paused
-                if event.type == pygame.KEYDOWN and not is_paused and not game_over:
+                if event.type == pygame.KEYDOWN and not is_paused and not game_over and not level_complete:
                     dx = 0
                     dy = 0
                     if event.key == pygame.K_d:
@@ -485,13 +519,22 @@ def main():
                     chips_left = board.move_level(dx, dy, inventory, chips_left)
                     if board.p1.is_collide(board.water):
                         game_over = True
+                    level_complete = board.check_portal_collision(chips_left, time_left, screen, inventory)
                 if event.type == pygame.KEYDOWN and game_over:
                     if event.key == pygame.K_RETURN:
                         game_over = False
                         board.load_level(LEVEL_FILE)
                         chips_left = 1
                         time_left = 100
-            if not is_paused and chips_left > 0 and not game_over:
+                if event.type == pygame.KEYDOWN and level_complete:
+                    if event.key == pygame.K_RETURN:
+                        level_complete = False
+                        board.load_level(LEVEL_FILE)
+                        chips_left = 1
+                        time_left = 100
+
+
+            if not is_paused and chips_left > 0 and not game_over and not level_complete:
                 current_time = time.time()
                 if last_time == 0:
                     last_time = current_time

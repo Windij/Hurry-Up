@@ -26,6 +26,7 @@ LEVEL_FILE = 'level.txt'
 RECORD_FILE = 'record.txt'
 TRAJECTORY_FILE = 'trajectory.txt'
 
+
 pictures = {
     '#': 'стены.png',
     '.': 'простая плитка.png',

@@ -2,6 +2,7 @@ import sys
 import pygame
 import os
 import time
+import math
 
 pygame.init()
 
@@ -22,11 +23,12 @@ LIGHT_YELLOW = (255, 255, 150)
 WHITE = (255, 255, 255)
 GRID_LINE_COLOR = BLACK
 LEVEL_FILE = 'level.txt'
-RECORD_FILE = 'record.txt' # Файл для хранения рекорда
+RECORD_FILE = 'record.txt'
+TRAJECTORY_FILE = 'trajectory.txt'
 
 pictures = {
-    '#': RED,
-    '.': BROWN,
+    '#': 'стены.png',
+    '.': 'простая плитка.png',
     'K': GOLD,
     'k': BLUE,
     'D': GOLD,
@@ -34,8 +36,10 @@ pictures = {
     'W': BLUE,
     '*': LIGHT_YELLOW,
     'P': GREEN,
-    'O': BLUE
+    'O': BLUE,
+    'M': BLACK
 }
+
 
 def load_image(name, colorkey=None):
     fullname = os.path.join('data', name)
@@ -81,6 +85,80 @@ class Door(Base):
         self.is_open = False
 
 
+class Monster(Base):
+    def __init__(self, color, trajectory_file):
+        self.trajectory = self.load_trajectory(trajectory_file)
+        print(self.trajectory)
+        self.current_point_index = 0
+        self.next_point_index = 1
+        self.speed = 4
+        self.x, self.y = self.trajectory[0]
+        super().__init__(self.x, self.y, color)
+
+    def load_trajectory(self, filename):
+        trajectory = []
+        with open(f'data/{filename}', 'r') as file:
+            for line in file:
+                x, y = map(float, line.strip().split(','))
+                trajectory.append([x, y])
+        return trajectory
+
+    def calculate_movement(self):
+        x1, y1 = self.trajectory[self.current_point_index]
+        x2, y2 = self.trajectory[self.next_point_index]
+
+        dx = x2 - x1
+        dy = y2 - y1
+
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+
+        if distance == 0:
+            return 0, 0
+
+        speed_x = self.speed * dx / distance
+        speed_y = self.speed * dy / distance
+
+        return speed_x, speed_y
+
+    def update(self):
+        speed_x, speed_y = self.calculate_movement()
+
+        self.x += speed_x
+        self.y += speed_y
+        self.rect.x = self.x
+        self.rect.y = self.y
+
+        current_x, current_y = self.trajectory[self.current_point_index]
+        next_x, next_y = self.trajectory[self.next_point_index]
+
+        # Проверка достижения точки
+        if speed_x > 0:
+            if self.x >= next_x:
+                self.x = next_x
+        elif speed_x < 0:
+            if self.x <= next_x:
+                self.x = next_x
+
+        if speed_y > 0:
+            if self.y >= next_y:
+                self.y = next_y
+        elif speed_y < 0:
+            if self.y <= next_y:
+                self.y = next_y
+
+        if (self.x == next_x and self.y == next_y):
+            self.current_point_index = self.next_point_index
+            self.next_point_index = (self.next_point_index + 1) % len(self.trajectory)
+
+    def move(self, dx, dy):
+        self.x += dx * TILE_SIZE
+        self.y += dy * TILE_SIZE
+        for pos in self.trajectory:
+            pos[0] += dx * TILE_SIZE
+            pos[1] += dy * TILE_SIZE
+        self.update()
+
+
 def load_level(filename):
     level_data = []
     try:
@@ -93,7 +171,7 @@ def load_level(filename):
     return level_data
 
 
-def create_level(level_data):
+def create_level(level_data, trajectory):
     wall = pygame.sprite.Group()
     floor = pygame.sprite.Group()
     player = pygame.sprite.Group()
@@ -102,12 +180,14 @@ def create_level(level_data):
     chips = pygame.sprite.Group()
     water = pygame.sprite.Group()
     portal = pygame.sprite.Group()
+    monsters = pygame.sprite.Group()  # Группа для монстров
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
             if tile_type == '[' or tile_type == '>':
                 continue
-            tile = Base(x, y, pictures[tile_type])
+            if tile_type != 'M':
+                tile = Base(x, y, pictures[tile_type])
             if tile_type == '#':
                 wall.add(tile)
             elif tile_type == 'P':
@@ -138,9 +218,13 @@ def create_level(level_data):
                 floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'O':
                 portal.add(tile)
+            elif tile_type == 'M':
+                monster = Monster(pictures['M'], trajectory)
+                monsters.add(monster)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == '.':
                 floor.add(tile)
-    return wall, floor, player, p1, keys, doors, chips, water, portal
+    return wall, floor, player, p1, keys, doors, chips, water, portal, monsters
 
 
 class Board:
@@ -163,11 +247,11 @@ class Board:
     def render(self, screen):
         for y in range(self.height):
             for x in range(self.width):
-                pygame.draw.rect(screen, 'white', (
+                pygame.draw.rect(screen, GRAY, (
                     x * self.cell_size,
                     y * self.cell_size, self.cell_size,
                     self.cell_size), width=1)
-                pygame.draw.rect(screen, GRAY, (
+                pygame.draw.rect(screen, BLACK, (
                     x * self.cell_size + 1,
                     y * self.cell_size + 1, self.cell_size - 2,
                     self.cell_size - 2))
@@ -187,10 +271,10 @@ class Board:
     def on_click(self, cell_coords):
         pass
 
-    def load_level(self, filename):
+    def load_level(self, filename, trajectory):
         level_data = load_level(filename)
-        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water, self.portal = create_level( # Загрузка порталов
-            level_data)
+        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water, self.portal, self.monsters = create_level(
+            level_data, trajectory)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
         for tile in self.wall:
@@ -217,6 +301,9 @@ class Board:
         for tile in self.player:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.monsters:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
 
     def move_level(self, dx, dy, inventory, chips_left):
         flag_of_door = False
@@ -227,6 +314,8 @@ class Board:
         for tile in self.portal:
             tile.move(dx, dy)
         for tile in self.floor:
+            tile.move(dx, dy)
+        for tile in self.monsters:
             tile.move(dx, dy)
         for tile in self.keys:
             tile.move(dx, dy)
@@ -251,6 +340,10 @@ class Board:
             self.move_level(-dx, -dy, inventory, chips_left)
         return chips_left
 
+    def move_monsters(self):
+        for monster in self.monsters:
+            monster.update()
+
     def draw_level(self, screen):
         self.screen_2.fill((0, 0, 0, 0))
         self.render(self.screen_2)
@@ -262,18 +355,27 @@ class Board:
         self.chips.draw(self.screen_2)
         self.water.draw(self.screen_2)
         self.portal.draw(self.screen_2)
+        self.monsters.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))
 
     def check_portal_collision(self, chips_left, time_left, screen, inventory):
         if self.p1.is_collide(self.portal) and chips_left == 0:
             total_score = 1000 + time_left * 10
             record = load_record()
-            improvement = total_score - record if record !=0 else "——"
+            improvement = total_score - record if record != 0 else "——"
             save_record(max(total_score, record))
             inventory.items = []
-            PopupWindow(screen, f"Total Score: {total_score}      Record: {record}     Improvement: {improvement}", 600, 200).run()
+            PopupWindow(screen, f"Total Score: {total_score}      Record: {record}     Improvement: {improvement}", 600,
+                        200).run()
             return True
         return False
+
+    def check_monster_collision(self, monsters):
+        for monster in monsters:
+            if self.p1.rect.colliderect(monster.rect):
+                return True
+        return False
+
 
 def load_record():
     try:
@@ -281,6 +383,7 @@ def load_record():
             return int(f.read())
     except FileNotFoundError:
         return 0
+
 
 def save_record(record):
     with open(RECORD_FILE, 'w') as f:
@@ -475,6 +578,7 @@ def main():
     level = 1
     chips_left = 1
     time_left = 100
+    clock = pygame.time.Clock()
     size = SCREEN_WIDTH, SCREEN_HEIGHT
     screen = pygame.display.set_mode(size)
     pygame.display.set_caption('Level Mover')
@@ -486,11 +590,11 @@ def main():
     last_time = 0
     game_over = False
     level_complete = False
-
+    trajectory = 'trajectory.txt'
 
     if not start_window.running:
         board = Board(BOARD_WIDTH, BOARD_HEIGHT)
-        board.load_level(LEVEL_FILE)
+        board.load_level(LEVEL_FILE, trajectory)
 
         inventory = Inventory(7, 1)
         inventory.set_view(board.left + TILE_SIZE,
@@ -520,19 +624,19 @@ def main():
                     if board.p1.is_collide(board.water):
                         game_over = True
                     level_complete = board.check_portal_collision(chips_left, time_left, screen, inventory)
+
                 if event.type == pygame.KEYDOWN and game_over:
                     if event.key == pygame.K_RETURN:
                         game_over = False
-                        board.load_level(LEVEL_FILE)
+                        board.load_level(LEVEL_FILE, trajectory)
                         chips_left = 1
                         time_left = 100
                 if event.type == pygame.KEYDOWN and level_complete:
                     if event.key == pygame.K_RETURN:
                         level_complete = False
-                        board.load_level(LEVEL_FILE)
+                        board.load_level(LEVEL_FILE, trajectory)
                         chips_left = 1
                         time_left = 100
-
 
             if not is_paused and chips_left > 0 and not game_over and not level_complete:
                 current_time = time.time()
@@ -543,6 +647,11 @@ def main():
                     last_time = current_time
                 if time_left < 0:
                     time_left = 100
+
+            if not is_paused and not game_over and not level_complete:
+                board.move_monsters()
+                if board.check_monster_collision(board.monsters):
+                    game_over = True
 
             screen.fill(BLACK)
 
@@ -566,6 +675,7 @@ def main():
                 draw_text(screen, "Press Enter to restart", SCREEN_WIDTH // 2 - 150,
                           SCREEN_HEIGHT // 2, RED)
                 inventory.items = []
+            clock.tick(60)
             pygame.display.flip()
 
     pygame.quit()

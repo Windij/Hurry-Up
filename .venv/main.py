@@ -26,7 +26,6 @@ LEVEL_FILE = 'level.txt'
 RECORD_FILE = 'record.txt'
 TRAJECTORY_FILE = 'trajectory.txt'
 
-
 pictures = {
     '#': 'стены.png',
     '.': 'простая плитка.png',
@@ -35,6 +34,7 @@ pictures = {
     'D': GOLD,
     'd': BLUE,
     'W': BLUE,
+    'S': YELLOW,
     '*': LIGHT_YELLOW,
     'P': GREEN,
     'O': BLUE,
@@ -180,6 +180,7 @@ def create_level(level_data, trajectory):
     doors = pygame.sprite.Group()
     chips = pygame.sprite.Group()
     water = pygame.sprite.Group()
+    sand = pygame.sprite.Group()
     portal = pygame.sprite.Group()
     monsters = pygame.sprite.Group()  # Группа для монстров
     p1 = None
@@ -217,6 +218,9 @@ def create_level(level_data, trajectory):
             elif tile_type == 'W':
                 water.add(tile)
                 floor.add(Base(x, y, pictures['.']))
+            elif tile_type == 'S':
+                sand.add(tile)
+                floor.add(Base(x, y, pictures['.']))
             elif tile_type == 'O':
                 portal.add(tile)
             elif tile_type == 'M':
@@ -225,7 +229,7 @@ def create_level(level_data, trajectory):
                 floor.add(Base(x, y, pictures['.']))
             elif tile_type == '.':
                 floor.add(tile)
-    return wall, floor, player, p1, keys, doors, chips, water, portal, monsters
+    return wall, floor, player, p1, keys, doors, chips, water, sand, portal, monsters
 
 
 class Board:
@@ -274,8 +278,8 @@ class Board:
 
     def load_level(self, filename, trajectory):
         level_data = load_level(filename)
-        self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water, self.portal, self.monsters = create_level(
-            level_data, trajectory)
+        (self.wall, self.floor, self.player, self.p1, self.keys, self.doors, self.chips, self.water,
+         self.sand, self.portal, self.monsters) = create_level(level_data, trajectory)
         delta_x = self.width // 2 * self.cell_size - self.p1.rect.x
         delta_y = self.height // 2 * self.cell_size - self.p1.rect.y
         for tile in self.wall:
@@ -296,6 +300,9 @@ class Board:
         for tile in self.water:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
+        for tile in self.sand:
+            tile.rect.x += delta_x
+            tile.rect.y += delta_y
         for tile in self.portal:
             tile.rect.x += delta_x
             tile.rect.y += delta_y
@@ -307,7 +314,7 @@ class Board:
             tile.rect.y += delta_y
 
     def move_level(self, dx, dy, inventory, chips_left):
-        flag_of_door = False
+        flag = False
         for tile in self.wall:
             tile.move(dx, dy)
         for tile in self.water:
@@ -318,6 +325,20 @@ class Board:
             tile.move(dx, dy)
         for tile in self.monsters:
             tile.move(dx, dy)
+        for tile in self.sand:
+            tile.move(dx, dy)
+            if self.p1.rect.colliderect(tile.rect):
+                tile.move(-dx, -dy)
+                if pygame.sprite.spritecollideany(tile, self.wall):
+                    tile.move(dx, dy)
+                    flag = True
+                if pygame.sprite.spritecollideany(tile, self.water):
+                    for water in self.water:
+                        if tile.rect.colliderect(water.rect):
+                            self.water.remove(water)
+                            break
+                    self.sand.remove(tile)
+
         for tile in self.keys:
             tile.move(dx, dy)
             if self.p1.rect.colliderect(tile.rect):
@@ -331,13 +352,13 @@ class Board:
                     self.doors.remove(tile)
                 else:
                     # Блокируем проход, если дверь не открыта
-                    flag_of_door = True
+                    flag = True
         for tile in self.chips:
             tile.move(dx, dy)
             if self.p1.rect.colliderect(tile.rect):
                 self.chips.remove(tile)
                 chips_left -= 1
-        if flag_of_door or self.p1.is_collide(self.wall):
+        if flag or self.p1.is_collide(self.wall):
             self.move_level(-dx, -dy, inventory, chips_left)
         return chips_left
 
@@ -355,6 +376,7 @@ class Board:
         self.doors.draw(self.screen_2)
         self.chips.draw(self.screen_2)
         self.water.draw(self.screen_2)
+        self.sand.draw(self.screen_2)
         self.portal.draw(self.screen_2)
         self.monsters.draw(self.screen_2)
         screen.blit(self.screen_2, (self.left, self.top))

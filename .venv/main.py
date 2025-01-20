@@ -48,6 +48,11 @@ def load_image(name, colorkey=None):
         print(f"Файл с изображением '{fullname}' не найден")
         sys.exit()
     image = pygame.image.load(fullname)
+    if colorkey is not None:
+        image = image.convert()
+        if colorkey == -1:
+            colorkey = image.get_at((0, 0))
+        image.set_colorkey(colorkey)
     return image
 
 
@@ -147,7 +152,7 @@ class Monster(Base):
             if self.y <= next_y:
                 self.y = next_y
 
-        if (self.x == next_x and self.y == next_y):
+        if self.x == next_x and self.y == next_y:
             self.current_point_index = self.next_point_index
             self.next_point_index = (self.next_point_index + 1) % len(self.trajectory)
 
@@ -182,7 +187,7 @@ def create_level(level_data, trajectory):
     water = pygame.sprite.Group()
     sand = pygame.sprite.Group()
     portal = pygame.sprite.Group()
-    monsters = pygame.sprite.Group()  # Группа для монстров
+    monsters = pygame.sprite.Group()
     p1 = None
     for y, row in enumerate(level_data):
         for x, tile_type in enumerate(row):
@@ -438,7 +443,7 @@ class Inventory(Board):
 
 
 class Button:
-    def __init__(self, text, x, y, width, height, color, hover_color, action=None):
+    def __init__(self, text, x, y, width, height, color, hover_color, action=None, image=None):
         self.text = text
         self.x = x
         self.y = y
@@ -451,13 +456,21 @@ class Button:
         self.text_surface = self.font.render(text, True, BLACK)
         self.text_rect = self.text_surface.get_rect(center=(x + width // 2, y + height // 2))
         self.rect = pygame.Rect(x, y, width, height)
+        self.image = image
 
     def draw(self, screen):
         mouse_pos = pygame.mouse.get_pos()
-        if self.rect.collidepoint(mouse_pos):
-            pygame.draw.rect(screen, self.hover_color, self.rect)
+        if self.image:
+            if self.rect.collidepoint(mouse_pos):
+                screen.blit(self.image, self.rect)
+                pygame.draw.rect(screen, self.hover_color, self.rect, 2)  # add outline to image
+            else:
+                screen.blit(self.image, self.rect)
         else:
-            pygame.draw.rect(screen, self.color, self.rect)
+            if self.rect.collidepoint(mouse_pos):
+                pygame.draw.rect(screen, self.hover_color, self.rect)
+            else:
+                pygame.draw.rect(screen, self.color, self.rect)
         screen.blit(self.text_surface, self.text_rect)
 
     def handle_event(self, event):
@@ -467,7 +480,7 @@ class Button:
 
 
 class PopupWindow:
-    def __init__(self, screen, text, width, height):
+    def __init__(self, screen, text, width, height, background_image=None, close_image=None):
         self.screen = screen
         self.width = width
         self.height = height
@@ -477,8 +490,9 @@ class PopupWindow:
         self.text_rect = self.text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.rect = pygame.Rect(SCREEN_WIDTH // 2 - width // 2, SCREEN_HEIGHT // 2 - height // 2, width, height)
         self.running = True
-        self.close_button = Button('Закрыть', self.rect.x + self.width - 140, self.rect.y + self.height - 40, 120, 30,
-                                   RED, (200, 0, 0), self.close)
+        self.close_button = Button('', self.rect.x + self.width - 140, self.rect.y + self.height - 40, 120, 30,
+                                   RED, (200, 0, 0), self.close, close_image)
+        self.background_image = background_image
 
     def close(self):
         self.running = False
@@ -490,8 +504,10 @@ class PopupWindow:
                     pygame.quit()
                     sys.exit()
                 self.close_button.handle_event(event)
-
-            pygame.draw.rect(self.screen, GRAY, self.rect)
+            if self.background_image:
+                self.screen.blit(self.background_image, self.rect)
+            else:
+                pygame.draw.rect(self.screen, GRAY, self.rect)
             self.screen.blit(self.text_surface, self.text_rect)
             self.close_button.draw(self.screen)
             pygame.display.flip()
@@ -502,8 +518,16 @@ class StartWindow:
         self.screen = screen
         self.buttons = []
         self.running = True
+        self.background_image = load_image('dungeon_entrance.jpg')
+        self.table_image = pygame.transform.scale(load_image('tables.jpg', colorkey=-1), (200, 50))
+        self.beton_image = pygame.transform.scale(load_image('beton.jpg'), (400, 200))
+        self.return_image = pygame.transform.scale(load_image('return.jpg'), (120, 30))
+        self.start_game_table_rect = None
         self.create_buttons()
         self.popup_window = None
+        self.animation_start_time = 0
+        self.animation_duration = 2
+        self.animating = False
 
     def create_buttons(self):
         button_width = 200
@@ -512,24 +536,29 @@ class StartWindow:
         button_y = 200
         space = 80
         self.buttons.append(
-            Button('Начать игру', start_x, button_y, button_width, button_height, GREEN, (0, 200, 0), self.start_game))
+            Button('Начать игру', start_x, button_y, button_width, button_height, GREEN, (0, 200, 0), self.start_game,
+                   self.table_image))
+        self.start_game_table_rect = self.buttons[0].rect
         button_y += space
         self.buttons.append(
-            Button('О игре', start_x, button_y, button_width, button_height, BLUE, (0, 0, 200), self.show_about))
+            Button('О игре', start_x, button_y, button_width, button_height, BLUE, (0, 0, 200), self.show_about,
+                   self.table_image))
         button_y += space
         self.buttons.append(Button('Об авторах', start_x, button_y, button_width, button_height, GOLD, (200, 170, 0),
-                                   self.show_authors))
+                                   self.show_authors, self.table_image))
 
     def start_game(self):
         self.running = False
 
     def show_about(self):
-        self.popup_window = PopupWindow(self.screen, "Здесь будет информация об игре", 400, 200)
+        self.popup_window = PopupWindow(self.screen, "Здесь будет информация об игре", 400, 200,
+                                        self.beton_image, self.return_image)
         self.popup_window.run()
         self.popup_window = None
 
     def show_authors(self):
-        self.popup_window = PopupWindow(self.screen, "Здесь информация об авторах", 400, 200)
+        self.popup_window = PopupWindow(self.screen, "Здесь информация об авторах", 400, 200,
+                                        self.beton_image, self.return_image)
         self.popup_window.run()
         self.popup_window = None
 
@@ -539,13 +568,14 @@ class StartWindow:
                 if event.type == pygame.QUIT:
                     pygame.quit()
                     sys.exit()
-                for button in self.buttons:
-                    button.handle_event(event)
-
+                if self.running:
+                    for button in self.buttons:
+                        button.handle_event(event)
             self.screen.fill(BLACK)
-            for button in self.buttons:
-                button.draw(self.screen)
-
+            self.screen.blit(self.background_image, ((SCREEN_WIDTH - self.background_image.get_width()) // 2, 0))
+            if self.running:
+                for button in self.buttons:
+                    button.draw(self.screen)
             pygame.display.flip()
 
 
